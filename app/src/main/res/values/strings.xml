@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">LAB_5</string>
+    <string name="enter_the_currency_for_example_usdt">Enter the currency(for example USDT)</string>
+</resources>
