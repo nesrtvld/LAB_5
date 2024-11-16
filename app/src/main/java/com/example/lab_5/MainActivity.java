@@ -1,47 +1,50 @@
 package com.example.lab_5;
 
+import android.os.AsyncTask;
 import android.os.Bundle;
-import android.util.Log; // Добавлено для логирования
-import android.widget.EditText;
-import android.widget.ListView;
-import android.widget.ArrayAdapter;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.widget.ProgressBar;
+import android.util.Log;
+import android.widget.EditText;
 import android.widget.Toast;
-
 import androidx.appcompat.app.AppCompatActivity;
-
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import org.json.JSONObject;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 
-public class MainActivity extends AppCompatActivity implements DataLoader.DataLoaderCallback {
+public class MainActivity extends AppCompatActivity {
 
-    private static final String TAG = "MainActivity";
-
-    private EditText editTextFilter;
-    private ListView listViewCurrencies;
-    private ProgressBar progressBar;
-    private ArrayAdapter<String> adapter;
+    private RecyclerView recyclerViewCurrencies;
+    private CurrencyAdapter adapter;
     private List<String> currencyList = new ArrayList<>();
     private List<String> filteredList = new ArrayList<>();
+
+    private static final String API_URL = "https://open.er-api.com/v6/latest/USD";
+    private static final String TAG = "MainActivity";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        editTextFilter = findViewById(R.id.editTextFilter);
-        listViewCurrencies = findViewById(R.id.listViewCurrencies);
-        progressBar = findViewById(R.id.progressBar);
+
+        recyclerViewCurrencies = findViewById(R.id.recyclerViewCurrencies);
+        recyclerViewCurrencies.setLayoutManager(new LinearLayoutManager(this));
 
 
-        adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, filteredList);
-        listViewCurrencies.setAdapter(adapter);
+        adapter = new CurrencyAdapter(filteredList);
+        recyclerViewCurrencies.setAdapter(adapter);
 
 
-        editTextFilter.addTextChangedListener(new TextWatcher() {
+        EditText editText = findViewById(R.id.editTextFilter);
+        editText.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
 
@@ -59,10 +62,7 @@ public class MainActivity extends AppCompatActivity implements DataLoader.DataLo
     }
 
     private void loadCurrencyData() {
-        Log.d(TAG, "Starting data load...");
-        progressBar.setVisibility(ProgressBar.VISIBLE);
-        String apiUrl = "https://open.er-api.com/v6/latest/USD\n";
-        new DataLoader(this).execute(apiUrl);
+        new CurrencyDataLoader().execute(API_URL);
     }
 
     private void filterCurrencies(String query) {
@@ -75,36 +75,56 @@ public class MainActivity extends AppCompatActivity implements DataLoader.DataLo
         adapter.notifyDataSetChanged();
     }
 
-    @Override
-    public void onDataLoaded(String data) {
-        Log.d(TAG, "Data loaded: " + data);
-        progressBar.setVisibility(ProgressBar.GONE);
+    private class CurrencyDataLoader extends AsyncTask<String, Void, String> {
 
+        @Override
+        protected String doInBackground(String... urls) {
+            StringBuilder result = new StringBuilder();
+            try {
+                URL url = new URL(urls[0]);
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
 
-        Map<String, String> parsedData = Parser.parseJson(data);
-
-        if (parsedData.isEmpty()) {
-            Log.e(TAG, "Parsed data is empty!");
-            Toast.makeText(this, "No data available", Toast.LENGTH_LONG).show();
-            return;
+                BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    result.append(line);
+                }
+                reader.close();
+            } catch (Exception e) {
+                Log.e(TAG, "Error loading data", e);
+                return null;
+            }
+            return result.toString();
         }
 
+        @Override
+        protected void onPostExecute(String data) {
+            if (data == null) {
+                Toast.makeText(MainActivity.this, "Failed to load data", Toast.LENGTH_LONG).show();
+                return;
+            }
 
-        currencyList.clear();
-        for (Map.Entry<String, String> entry : parsedData.entrySet()) {
-            currencyList.add(entry.getKey() + " - " + entry.getValue());
+            try {
+                JSONObject jsonObject = new JSONObject(data);
+                JSONObject rates = jsonObject.getJSONObject("rates");
+
+
+                currencyList.clear();
+                Iterator<String> keys = rates.keys();
+                while (keys.hasNext()) {
+                    String currency = keys.next();
+                    String value = rates.getString(currency);
+                    currencyList.add(currency + " - " + value);
+                }
+
+
+                filterCurrencies("");
+
+            } catch (Exception e) {
+                Log.e(TAG, "Error parsing data", e);
+                Toast.makeText(MainActivity.this, "Error parsing data", Toast.LENGTH_LONG).show();
+            }
         }
-
-
-        filteredList.clear();
-        filteredList.addAll(currencyList);
-        adapter.notifyDataSetChanged();
-    }
-
-    @Override
-    public void onError(Exception e) {
-        progressBar.setVisibility(ProgressBar.GONE);
-        Log.e(TAG, "Error loading data", e);
-        Toast.makeText(this, "Error loading data: " + e.getMessage(), Toast.LENGTH_LONG).show();
     }
 }
